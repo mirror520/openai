@@ -1,8 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
-
 	"github.com/oklog/ulid/v2"
 )
 
@@ -19,21 +17,21 @@ type Context struct {
 	*Options
 }
 
-func NewContext(model string, raw json.RawMessage) (*Context, error) {
+func NewContext(model string, prompt string, opts *Options) *Context {
 	ctx := new(Context)
 	ctx.ID = ChatID(ulid.Make())
 	ctx.Model = model
-	ctx.Messages = make([]*Message, 0)
 
-	var opts *Options
-	err := json.Unmarshal(raw, &opts)
-	if err != nil {
-		return nil, err
+	ctx.Messages = []*Message{
+		{
+			Role:    System,
+			Content: prompt,
+		},
 	}
 
 	ctx.Options = opts
 
-	return ctx, nil
+	return ctx
 }
 
 func (ctx *Context) AddMessage(msg *Message) {
@@ -41,11 +39,17 @@ func (ctx *Context) AddMessage(msg *Message) {
 }
 
 func (ctx *Context) Request() *Request {
-	return &Request{
+	req := &Request{
 		Model:    ctx.Model,
 		Messages: ctx.Messages,
-		Options:  *ctx.Options, // clone
 	}
+
+	// clone options
+	if ctx.Options != nil {
+		req.Options = *ctx.Options
+	}
+
+	return req
 }
 
 type Options struct {
@@ -103,12 +107,7 @@ type Options struct {
 	User *string `json:"user,omitempty"`
 }
 
-func (opts *Options) Update(raw json.RawMessage) error {
-	var newOpts *Options
-	if err := json.Unmarshal(raw, &newOpts); err != nil {
-		return err
-	}
-
+func (opts *Options) Update(newOpts *Options) error {
 	if newOpts.Temperature != nil {
 		opts.Temperature = newOpts.Temperature
 	}

@@ -15,8 +15,8 @@ import (
 )
 
 type Service interface {
-	CreateChat(model string, opts json.RawMessage) (chat.ChatID, error)
-	UpdateChat(model string, opts json.RawMessage, id chat.ChatID) error
+	CreateChat(model string, prompt string, rawOpts json.RawMessage) (chat.ChatID, error)
+	UpdateChat(model string, prompt string, rawOpts json.RawMessage, id chat.ChatID) error
 	Chat(content string, id chat.ChatID) (string, error)
 	ChatStream(content string, id chat.ChatID) (<-chan string, error)
 }
@@ -37,11 +37,16 @@ type service struct {
 	apiKey string
 }
 
-func (svc *service) CreateChat(model string, opts json.RawMessage) (chat.ChatID, error) {
-	ctx, err := chat.NewContext(model, opts)
-	if err != nil {
-		return chat.ChatID{}, err
+func (svc *service) CreateChat(model string, prompt string, rawOpts json.RawMessage) (chat.ChatID, error) {
+	var opts *chat.Options
+	if rawOpts != nil {
+		err := json.Unmarshal(rawOpts, &opts)
+		if err != nil {
+			return chat.ChatID{}, err
+		}
 	}
+
+	ctx := chat.NewContext(model, prompt, opts)
 
 	if err := svc.chats.Store(ctx); err != nil {
 		return chat.ChatID{}, err
@@ -50,16 +55,33 @@ func (svc *service) CreateChat(model string, opts json.RawMessage) (chat.ChatID,
 	return ctx.ID, nil
 }
 
-func (svc *service) UpdateChat(model string, opts json.RawMessage, id chat.ChatID) error {
+func (svc *service) UpdateChat(model string, prompt string, rawOpts json.RawMessage, id chat.ChatID) error {
 	ctx, err := svc.chats.Find(id)
 	if err != nil {
 		return err
 	}
 
-	ctx.Model = model
+	if model != "" {
+		ctx.Model = model
+	}
 
-	if err := ctx.Options.Update(opts); err != nil {
-		return err
+	if prompt != "" {
+		ctx.AddMessage(&chat.Message{
+			Role:    chat.System,
+			Content: prompt,
+		})
+	}
+
+	var opts *chat.Options
+	if rawOpts != nil {
+		err := json.Unmarshal(rawOpts, &opts)
+		if err != nil {
+			return err
+		}
+
+		if err := ctx.Options.Update(opts); err != nil {
+			return err
+		}
 	}
 
 	if err := svc.chats.Store(ctx); err != nil {
