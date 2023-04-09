@@ -1,6 +1,7 @@
 package chat
 
 type Repository interface {
-	Store(*Context) error
-	Find(ChatID) (*Context, error)
+	Store(*Chat) error
+	Find(ChatID) (*Chat, error)
+	Close() error
 }

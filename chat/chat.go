@@ -1,52 +1,82 @@
 package chat
 
 import (
+	"encoding/json"
+
 	"github.com/oklog/ulid/v2"
 )
 
 type ChatID ulid.ULID
 
+func ParseID(id string) (ChatID, error) {
+	chatID, err := ulid.Parse(id)
+	if err != nil {
+		return ChatID{}, err
+	}
+	return ChatID(chatID), nil
+}
+
 func (id ChatID) String() string {
 	return ulid.ULID(id).String()
 }
 
-type Context struct {
+func (id *ChatID) MarshalJSON() ([]byte, error) {
+	jsonStr := `"` + id.String() + `"`
+	return []byte(jsonStr), nil
+}
+
+func (id *ChatID) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+
+	userID, err := ParseID(s)
+	if err != nil {
+		return err
+	}
+
+	*id = userID
+	return nil
+}
+
+type Chat struct {
 	ID       ChatID
 	Model    string
 	Messages []*Message
 	*Options
 }
 
-func NewContext(model string, prompt string, opts *Options) *Context {
-	ctx := new(Context)
-	ctx.ID = ChatID(ulid.Make())
-	ctx.Model = model
+func NewChat(model string, prompt string, opts *Options) *Chat {
+	c := new(Chat)
+	c.ID = ChatID(ulid.Make())
+	c.Model = model
 
-	ctx.Messages = []*Message{
+	c.Messages = []*Message{
 		{
 			Role:    System,
 			Content: prompt,
 		},
 	}
 
-	ctx.Options = opts
+	c.Options = opts
 
-	return ctx
+	return c
 }
 
-func (ctx *Context) AddMessage(msg *Message) {
-	ctx.Messages = append(ctx.Messages, msg)
+func (c *Chat) AddMessage(msg *Message) {
+	c.Messages = append(c.Messages, msg)
 }
 
-func (ctx *Context) Request() *Request {
+func (c *Chat) Request() *Request {
 	req := &Request{
-		Model:    ctx.Model,
-		Messages: ctx.Messages,
+		Model:    c.Model,
+		Messages: c.Messages,
 	}
 
 	// clone options
-	if ctx.Options != nil {
-		req.Options = *ctx.Options
+	if c.Options != nil {
+		req.Options = *c.Options
 	}
 
 	return req

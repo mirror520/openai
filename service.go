@@ -21,6 +21,8 @@ type Service interface {
 	ChatStream(content string, id chat.ChatID) (<-chan string, error)
 }
 
+type ServiceMiddleware func(Service) Service
+
 func NewService(chats chat.Repository, cfg *conf.Config) Service {
 	return &service{
 		log: zap.L().With(
@@ -46,27 +48,27 @@ func (svc *service) CreateChat(model string, prompt string, rawOpts json.RawMess
 		}
 	}
 
-	ctx := chat.NewContext(model, prompt, opts)
+	c := chat.NewChat(model, prompt, opts)
 
-	if err := svc.chats.Store(ctx); err != nil {
+	if err := svc.chats.Store(c); err != nil {
 		return chat.ChatID{}, err
 	}
 
-	return ctx.ID, nil
+	return c.ID, nil
 }
 
 func (svc *service) UpdateChat(model string, prompt string, rawOpts json.RawMessage, id chat.ChatID) error {
-	ctx, err := svc.chats.Find(id)
+	c, err := svc.chats.Find(id)
 	if err != nil {
 		return err
 	}
 
 	if model != "" {
-		ctx.Model = model
+		c.Model = model
 	}
 
 	if prompt != "" {
-		ctx.AddMessage(&chat.Message{
+		c.AddMessage(&chat.Message{
 			Role:    chat.System,
 			Content: prompt,
 		})
@@ -79,12 +81,12 @@ func (svc *service) UpdateChat(model string, prompt string, rawOpts json.RawMess
 			return err
 		}
 
-		if err := ctx.Options.Update(opts); err != nil {
+		if err := c.Options.Update(opts); err != nil {
 			return err
 		}
 	}
 
-	if err := svc.chats.Store(ctx); err != nil {
+	if err := svc.chats.Store(c); err != nil {
 		return err
 	}
 
@@ -92,17 +94,17 @@ func (svc *service) UpdateChat(model string, prompt string, rawOpts json.RawMess
 }
 
 func (svc *service) Chat(content string, id chat.ChatID) (string, error) {
-	ctx, err := svc.chats.Find(id)
+	c, err := svc.chats.Find(id)
 	if err != nil {
 		return "", err
 	}
 
-	ctx.AddMessage(&chat.Message{
+	c.AddMessage(&chat.Message{
 		Role:    chat.User,
 		Content: content,
 	})
 
-	bs, err := json.Marshal(ctx.Request())
+	bs, err := json.Marshal(c.Request())
 	if err != nil {
 		return "", err
 	}
@@ -137,10 +139,10 @@ func (svc *service) Chat(content string, id chat.ChatID) (string, error) {
 	}
 
 	for _, choice := range result.Choices {
-		ctx.AddMessage(choice.Message)
+		c.AddMessage(choice.Message)
 	}
 
-	if err := svc.chats.Store(ctx); err != nil {
+	if err := svc.chats.Store(c); err != nil {
 		return "", err
 	}
 
@@ -148,18 +150,19 @@ func (svc *service) Chat(content string, id chat.ChatID) (string, error) {
 }
 
 func (svc *service) ChatStream(content string, id chat.ChatID) (<-chan string, error) {
-	ctx, err := svc.chats.Find(id)
+	c, err := svc.chats.Find(id)
 	if err != nil {
 		return nil, err
 	}
 
-	ctx.AddMessage(&chat.Message{
+	c.AddMessage(&chat.Message{
 		Role:    chat.User,
 		Content: content,
 	})
 
-	reqMsg := ctx.Request()
-	*reqMsg.Options.Stream = true
+	reqMsg := c.Request()
+	reqMsg.Stream = new(bool)
+	*reqMsg.Stream = true
 
 	bs, err := json.Marshal(reqMsg)
 	if err != nil {
@@ -192,12 +195,12 @@ func (svc *service) ChatStream(content string, id chat.ChatID) (<-chan string, e
 
 	data := make(chan string, 1)
 
-	go svc.stream(ctx, resp.Body, data)
+	go svc.stream(c, resp.Body, data)
 
 	return data, nil
 }
 
-func (svc *service) stream(ctx *chat.Context, reader io.ReadCloser, data chan<- string) error {
+func (svc *service) stream(ctx *chat.Chat, reader io.ReadCloser, data chan<- string) error {
 	log := svc.log.With(
 		zap.String("action", "chat_stream"),
 		zap.String("chat_id", ctx.ID.String()),
