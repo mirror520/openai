@@ -13,6 +13,20 @@ import (
 	"github.com/mirror520/openai/model"
 )
 
+func Router(route *gin.RouterGroup, endpoints *openai.ChatEndpoints) {
+	// POST /chats
+	route.POST("/chats", CreateChatHandler(endpoints.CreateChatEndpoint))
+
+	// PATCH /chats/:id
+	route.PATCH("/chats/:id", UpdateChatHandler(endpoints.UpdateChatEndpoint))
+
+	// POST /chats/:id/messages
+	route.POST("/chats/:id/messages", ChatHandler(
+		endpoints.ChatEndpoint,
+		endpoints.ChatStreamEndpoint,
+	))
+}
+
 func CreateChatHandler(endpoint endpoint.Endpoint) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		var req *openai.CreateChatRequest
@@ -66,7 +80,7 @@ func UpdateChatHandler(endpoint endpoint.Endpoint) gin.HandlerFunc {
 	}
 }
 
-func ChatHandler(endpoint endpoint.Endpoint) gin.HandlerFunc {
+func ChatHandler(chatEndpoint endpoint.Endpoint, chatStreamEndpoint endpoint.Endpoint) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		var req *openai.ChatRequest
 		if err := ctx.ShouldBind(&req); err != nil {
@@ -92,18 +106,26 @@ func ChatHandler(endpoint endpoint.Endpoint) gin.HandlerFunc {
 			}
 		}
 
-		resp, err := endpoint(ctx, req)
-		if err != nil {
-			result := model.FailureResult(err)
-			ctx.AbortWithStatusJSON(http.StatusUnprocessableEntity, result)
-			return
-		}
-
 		if !stream {
+			resp, err := chatEndpoint(ctx, req)
+			if err != nil {
+				result := model.FailureResult(err)
+				ctx.AbortWithStatusJSON(http.StatusUnprocessableEntity, result)
+				return
+			}
+
 			result := model.SuccessResult("chat answered")
 			result.Data = resp
 			ctx.JSON(http.StatusOK, result)
+
 		} else {
+			resp, err := chatStreamEndpoint(ctx, req)
+			if err != nil {
+				result := model.FailureResult(err)
+				ctx.AbortWithStatusJSON(http.StatusUnprocessableEntity, result)
+				return
+			}
+
 			stream, ok := resp.(<-chan string)
 			if !ok {
 				err := errors.New("invalid stream")

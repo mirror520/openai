@@ -1,10 +1,15 @@
 package main
 
 import (
+	"log"
 	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/urfave/cli/v2"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
@@ -14,7 +19,32 @@ import (
 	"github.com/mirror520/openai/transport/http"
 )
 
-func run() error {
+func main() {
+	app := &cli.App{
+		Name:  "openai",
+		Usage: "OpenAI proxy service",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "path",
+				Usage:   "work directory",
+				EnvVars: []string{"OPENAI_PATH"},
+			},
+			&cli.IntFlag{
+				Name:    "port",
+				Usage:   "service port",
+				Value:   8080,
+				EnvVars: []string{"OPENAI_PORT"},
+			},
+		},
+		Action: run,
+	}
+
+	if err := app.Run(os.Args); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(cli *cli.Context) error {
 	f, err := os.Open("../config.yaml")
 	if err != nil {
 		return err
@@ -37,34 +67,33 @@ func run() error {
 	repo := inmem.NewChatRepository()
 	defer repo.Close()
 
-	r := gin.Default()
-	r.Use(cors.Default())
-
+	// service
 	svc := openai.NewService(repo, cfg)
 	svc = openai.LoggingMiddleware(log)(svc)
 
-	apiV1 := r.Group("/openai/v1")
-	{
-		// POST /chats
-		{
-			endpoint := openai.CreateChatEndpoint(svc)
-			apiV1.POST("/chats", http.CreateChatHandler(endpoint))
-		}
-
-		// PATCH /chats/:id
-		{
-			endpoint := openai.UpdateChatEndpoint(svc)
-			apiV1.PATCH("/chats/:id", http.UpdateChatHandler(endpoint))
-		}
-
-		// PUT /chats/:id/ask
-		{
-			endpoint := openai.ChatEndpoint(svc)
-			apiV1.PUT("/chats/:id/ask", http.ChatHandler(endpoint))
-		}
+	// endpoint
+	endpoints := &openai.ChatEndpoints{
+		CreateChatEndpoint: openai.CreateChatEndpoint(svc),
+		UpdateChatEndpoint: openai.UpdateChatEndpoint(svc),
+		ChatEndpoint:       openai.ChatEndpoint(svc),
+		ChatStreamEndpoint: openai.ChatStreamEndpoint(svc),
 	}
 
+	// transport
+	r := gin.Default()
+	r.Use(cors.Default())
+	http.Router(r.Group("/openai/v1"), endpoints)
+
+	port := cli.Int("port")
+	go r.Run(":" + strconv.Itoa(port))
+
 	// TODO: Service Registration
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	sign := <-quit
+	log.Info(sign.String())
 
 	return nil
 }

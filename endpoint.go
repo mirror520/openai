@@ -10,6 +10,13 @@ import (
 	"github.com/mirror520/openai/chat"
 )
 
+type ChatEndpoints struct {
+	CreateChatEndpoint endpoint.Endpoint
+	UpdateChatEndpoint endpoint.Endpoint
+	ChatEndpoint       endpoint.Endpoint
+	ChatStreamEndpoint endpoint.Endpoint
+}
+
 type CreateChatRequest struct {
 	Model   string          `json:"model"`
 	Prompt  string          `json:"prompt"`
