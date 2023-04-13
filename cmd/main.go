@@ -45,7 +45,17 @@ func main() {
 }
 
 func run(cli *cli.Context) error {
-	f, err := os.Open("../config.yaml")
+	path := cli.String("path")
+	if path == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+
+		path = homeDir + "/.openai"
+	}
+
+	f, err := os.Open(path + "/config.yaml")
 	if err != nil {
 		return err
 	}

@@ -35,7 +35,7 @@ func CreateChatEndpoint(svc Service) endpoint.Endpoint {
 			return nil, err
 		}
 
-		return id, nil
+		return &id, nil
 	}
 }
 
